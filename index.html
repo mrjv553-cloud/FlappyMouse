@@ -1,1 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Mouse - Queijo Selvagem</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #2c1e14; /* Cor de porão/cozinha escura */
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        canvas {
+            border: 4px solid #5d4037;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            background: #4e342e;
+        }
+        #ui {
+            position: absolute;
+            color: white;
+            text-align: center;
+            pointer-events: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
 
+    <div id="ui">
+        <h1 id="scoreDisplay">0</h1>
+        <p id="message">Clique para Pular</p>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreDisplay = document.getElementById('scoreDisplay');
+const message = document.getElementById('message');
+
+// Ajuste do tamanho do canvas
+canvas.width = 400;
+canvas.height = 600;
+
+// Variáveis do Jogo
+let score = 0;
+let highScore = localStorage.getItem('flappyHighScore') || 0;
+let gameActive = false;
+let frames = 0;
+let speed = 3;
+
+// Objeto do Rato
+const mouse = {
+    x: 50,
+    y: 300,
+    w: 40,
+    h: 25,
+    gravity: 0.6,
+    jump: -8,
+    velocity: 0,
+    rotation: 0,
+    
+    draw() {
+        ctx.save();
+        ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
+        
+        // Rotação baseada na velocidade
+        this.rotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 4, this.velocity * 0.1));
+        ctx.rotate(this.rotation);
+
+        // Corpo do Rato (Cinza)
+        ctx.fillStyle = '#9e9e9e';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, this.w / 2, this.h / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Orelha
+        ctx.fillStyle = '#ff8a80';
+        ctx.beginPath();
+        ctx.arc(-5, -10, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Olho
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.arc(10, -5, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Nariz
+        ctx.fillStyle = 'pink';
+        ctx.beginPath();
+        ctx.arc(18, 0, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // LÓGICA DA CAUDA:
+        // Se subir (vel < 0), cauda para baixo. Se cair (vel > 0), cauda para cima.
+        ctx.strokeStyle = '#757575';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-15, 0); 
+        if (this.velocity < 0) {
+            // Pulando -> Cauda para baixo
+            ctx.quadraticCurveTo(-25, 20, -35, 15);
+        } else {
+            // Caindo -> Cauda para cima
+            ctx.quadraticCurveTo(-25, -20, -35, -15);
+        }
+        ctx.stroke();
+
+        ctx.restore();
+    },
+
+    update() {
+        if (!gameActive) return;
+        this.velocity += this.gravity;
+        this.y += this.velocity;
+
+        // Colisão com teto e chão
+        if (this.y + this.h > canvas.height || this.y < 0) {
+            gameOver();
+        }
+    }
+};
+
+// Obstáculos (Queijos)
+const pipes = [];
+const pipeWidth = 60;
+const pipeGap = 150;
+
+function createPipe() {
+    const minHeight = 50;
+    const maxHeight = canvas.height - pipeGap - minHeight;
+    const height = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+
+    pipes.push({
+        x: canvas.width,
+        top: height,
+        bottom: canvas.height - height - pipeGap,
+        passed: false
+    });
+}
+
+function drawPipes() {
+    pipes.forEach(p => {
+        ctx.fillStyle = '#ffd600'; // Cor de Queijo
+        // Cano Superior
+        ctx.fillRect(p.x, 0, pipeWidth, p.top);
+        // Cano Inferior
+        ctx.fillRect(p.x, canvas.height - p.bottom, pipeWidth, p.bottom);
+        
+        // Detalhes de buraquinhos no queijo
+        ctx.fillStyle = 'rgba(0,0,0,0.1)';
+        ctx.beginPath();
+        ctx.arc(p.x + 20, p.top / 2, 10, 0, Math.PI*2);
+        ctx.arc(p.x + 40, canvas.height - p.bottom + 30, 8, 0, Math.PI*2);
+        ctx.fill();
+    });
+}
+
+function updatePipes() {
+    if (!gameActive) return;
+    
+    if (frames % 100 === 0) createPipe();
+
+    pipes.forEach((p, index) => {
+        p.x -= speed;
+
+        // Colisão
+        if (
+            mouse.x + mouse.w > p.x &&
+            mouse.x < p.x + pipeWidth &&
+            (mouse.y < p.top || mouse.y + mouse.h > canvas.height - p.bottom)
+        ) {
+            gameOver();
+        }
+
+        // Pontuação
+        if (!p.passed && p.x + pipeWidth < mouse.x) {
+            p.passed = true;
+            score++;
+            scoreDisplay.innerText = score;
+            // Aumento de dificuldade
+            if (score % 5 === 0) speed += 0.5;
+            playSqueak(800, 0.1); // Som de ponto/passagem
+        }
+
+        if (p.x + pipeWidth < 0) pipes.splice(index, 1);
+    });
+}
+
+// Efeitos Sonoros Simples (Web Audio API)
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSqueak(freq, dur) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = freq;
+    osc.type = 'triangle';
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + dur);
+}
+
+function gameOver() {
+    gameActive = false;
+    if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('flappyHighScore', highScore);
+    }
+    message.innerHTML = `GAME OVER<br>Recorde: ${highScore}<br>Clique para Reiniciar`;
+    playSqueak(150, 0.5); // Som de batida
+}
+
+function reset() {
+    mouse.y = 300;
+    mouse.velocity = 0;
+    pipes.length = 0;
+    score = 0;
+    speed = 3;
+    scoreDisplay.innerText = score;
+    message.innerText = "";
+    gameActive = true;
+    frames = 0;
+}
+
+// Input
+window.addEventListener('mousedown', () => {
+    if (!gameActive) {
+        reset();
+    } else {
+        mouse.velocity = mouse.jump;
+        playSqueak(400, 0.05); // Som de pulo
+    }
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+        if (!gameActive) reset();
+        else mouse.velocity = mouse.jump;
+    }
+});
+
+function loop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    drawPipes();
+    updatePipes();
+    mouse.draw();
+    mouse.update();
+    
+    frames++;
+    requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
